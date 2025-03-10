@@ -7,7 +7,7 @@ import com.xiaofei.springbootinit.example.blockingQueue.data.RequestData;
  * @description 事件处理器
  * @date 2025/3/3
  */
-public interface EventResolver {
+public interface EventResolver<T extends RequestData> {
 
     /**
      * 是否支持解析

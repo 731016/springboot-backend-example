@@ -30,4 +30,9 @@ public class EventController {
         eventTracker.addEvent(requestData);
         return "队列已接收数据" + JSONUtil.toJsonStr(requestData);
     }
+
+    @PostMapping("/getEventCount")
+    public String getEventCount()  {
+        return "队列中事件数量为：" + eventTracker.getEventSize();
+    }
 }

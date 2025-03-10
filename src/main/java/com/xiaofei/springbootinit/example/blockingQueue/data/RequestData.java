@@ -1,7 +1,6 @@
 package com.xiaofei.springbootinit.example.blockingQueue.data;
 
 import lombok.Data;
-import org.apache.poi.ss.formula.functions.T;
 
 import java.io.Serializable;
 
@@ -11,7 +10,7 @@ import java.io.Serializable;
  * @date 2025/3/3
  */
 @Data
-public class RequestData implements Serializable {
+public class RequestData<T> implements Serializable {
     private T data;
     private String type;
 }
