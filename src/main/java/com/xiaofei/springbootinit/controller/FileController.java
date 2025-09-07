@@ -11,23 +11,26 @@ import com.xiaofei.springbootinit.model.dto.file.UploadFileRequest;
 import com.xiaofei.springbootinit.model.entity.User;
 import com.xiaofei.springbootinit.model.enums.FileUploadBizEnum;
 import com.xiaofei.springbootinit.service.UserService;
-import java.io.File;
+
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.Arrays;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.RandomStringUtils;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestPart;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 文件接口
  *
  * @author <a href="http://xiaofei.site>计算机知识杂货铺</a>
- * @from 
+ * @from
  */
 @RestController
 @RequestMapping("/file")
@@ -50,7 +53,7 @@ public class FileController {
      */
     @PostMapping("/upload")
     public BaseResponse<String> uploadFile(@RequestPart("file") MultipartFile multipartFile,
-            UploadFileRequest uploadFileRequest, HttpServletRequest request) {
+                                           UploadFileRequest uploadFileRequest, HttpServletRequest request) {
         String biz = uploadFileRequest.getBiz();
         FileUploadBizEnum fileUploadBizEnum = FileUploadBizEnum.getEnumByValue(biz);
         if (fileUploadBizEnum == null) {
@@ -104,5 +107,114 @@ public class FileController {
                 throw new BusinessException(ErrorCode.PARAMS_ERROR, "文件类型错误");
             }
         }
+    }
+
+
+    @PostMapping("/downUrlFile")
+    public BaseResponse<String> downUrlFile(@RequestParam String remoteUrl) {
+        // 保存文件的本地路径
+        String savePath = "src/main/resources/files/";
+
+        try {
+            // 创建保存文件的目录（如果不存在）
+            File saveDir = new File(savePath).getParentFile();
+            if (!saveDir.exists()) {
+                saveDir.mkdirs();
+            }
+
+            // 打开连接
+            URL url = new URL(remoteUrl);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+            //connection.setRequestProperty("fine_auth_token", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIiwidGVuYW50SWQiOiJkZWZhdWx0IiwiaXNzIjoiZmFucnVhbiIsImRlc2NyaXB0aW9uIjoidXNlcih1c2VyKSIsImV4cCI6MTc1MDQ0MDAwNCwiaWF0IjoxNzUwNDM2NDA0LCJqdGkiOiJXSUVweVlGc1JUOEptV0xSTmRtTnhGeVp3eTBQT0FWYzQzSFBiZTljNFhRSFJpZnYifQ.AQauaYPDLOQv1wskRLKK95Fke0yMTLXTRKNaxLj-YDo");
+
+
+            // 尝试从响应头中获取文件名
+            String fileName = getFileNameFromResponseHeader(connection);
+            if (fileName == null || fileName.isEmpty()) {
+                // 如果无法获取文件名，使用默认文件名
+                fileName = "default_file.pdf";
+            }
+
+            // 检查响应码
+            int responseCode = connection.getResponseCode();
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+
+                // 打印响应头
+                log.info("Response Headers:");
+                connection.getHeaderFields().forEach((k, v) -> log.info(k + ":" + v));
+
+                // 检查Content-Type
+                String contentType = connection.getContentType();
+                log.info("Content-Type: " + contentType);
+
+                if (!contentType.contains("pdf")) {
+                    throw new IOException("服务器返回的内容类型不是PDF，实际类型为：" + contentType);
+                }
+
+                // 获取Content-Length（文件大小）
+                long contentLength = connection.getContentLengthLong();
+                log.info("文件大小：" + contentLength);
+
+                String filePath = savePath + fileName;
+
+                // 读取文件流
+                try (BufferedInputStream in = new BufferedInputStream(connection.getInputStream());
+                     BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(filePath))) {
+
+                    byte[] dataBuffer = new byte[4096];
+                    int bytesRead;
+                    long totalBytesRead = 0;
+
+                    while ((bytesRead = in.read(dataBuffer, 0, 4096)) != -1) {
+                        out.write(dataBuffer, 0, bytesRead);
+                        totalBytesRead += bytesRead;
+                    }
+
+                    // 检查文件头
+//                    try (FileInputStream fis = new FileInputStream(savePath)) {
+//                        byte[] fileHeader = new byte[5];
+//                        fis.read(fileHeader);
+//                        String header = new String(fileHeader);
+//                        if (!header.startsWith("%PDF-")) {
+//                            throw new IOException("文件内容不正确，不是有效的PDF文件");
+//                        }
+//                    }
+
+                    log.info("Total bytes read: " + totalBytesRead);
+
+                    if (contentLength > 0 && totalBytesRead != contentLength) {
+                        throw new IOException("文件下载不完整，预期大小：" + contentLength + "，实际大小：" + totalBytesRead);
+                    }
+                    return ResultUtils.success("文件下载成功，保存路径为：" + savePath);
+                }
+            } else {
+                log.error("服务器响应错误，响应码：" + responseCode);
+            }
+        } catch (IOException e) {
+            log.error("文件下载失败：" + e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, e.getMessage());
+        }
+        return ResultUtils.error(ErrorCode.SYSTEM_ERROR, "文件下载失败");
+    }
+
+    /**
+     * 从HTTP响应头中获取文件名
+     *
+     * @param connection HttpURLConnection对象
+     * @return 文件名，如果无法获取则返回null
+     */
+    private String getFileNameFromResponseHeader(HttpURLConnection connection) {
+        String contentDisposition = connection.getHeaderField("Content-Disposition");
+        if (contentDisposition != null) {
+            // 使用正则表达式提取文件名
+            Pattern pattern = Pattern.compile("filename=\"([^\"]+)\"|filename=([^;]+)");
+            Matcher matcher = pattern.matcher(contentDisposition);
+            if (matcher.find()) {
+                return matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+            }
+        }
+        return null;
     }
 }
